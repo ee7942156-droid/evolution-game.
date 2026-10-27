@@ -1,0 +1,175 @@
+name: Build Evolution Matter APK
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  workflow_dispatch: # Позволяет запускать сборку кнопкой вручную
+
+jobs:
+  build-android-apk:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 1. Скачивание репозитория
+        uses: actions/checkout@v4
+
+      - name: 2. Установка Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: 3. Установка Android SDK и Gradle
+        uses: android-actions/setup-android@v3
+
+      - name: 4. Авто-генерация Android-проекта вокруг index.html
+        run: |
+          mkdir -p app/src/main/assets
+          mkdir -p app/src/main/java/com/matter/evolution
+          
+          # Копируем твой index.html внутрь приложения
+          cp index.html app/src/main/assets/index.html
+
+          # Создаём settings.gradle
+          cat << 'EOF' > settings.gradle
+          rootProject.name = "EvolutionMatter"
+          include ':app'
+          EOF
+
+          # Создаём корневой build.gradle
+          cat << 'EOF' > build.gradle
+          buildscript {
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+              dependencies {
+                  classpath 'com.android.tools.build:gradle:8.2.2'
+              }
+          }
+          allprojects {
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          EOF
+
+          # Создаём app/build.gradle
+          cat << 'EOF' > app/build.gradle
+          apply plugin: 'com.android.application'
+
+          android {
+              namespace 'com.matter.evolution'
+              compileSdk 34
+
+              defaultConfig {
+                  applicationId "com.matter.evolution"
+                  minSdk 24
+                  targetSdk 34
+                  versionCode 1
+                  versionName "1.0"
+              }
+
+              buildTypes {
+                  debug {
+                      minifyEnabled false
+                  }
+              }
+
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_17
+                  targetCompatibility JavaVersion.VERSION_17
+              }
+          }
+          EOF
+
+          # Создаём AndroidManifest.xml (полный экран, портрет, вибрация)
+          cat << 'EOF' > app/src/main/AndroidManifest.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <uses-permission android:name="android.permission.VIBRATE" />
+              <application
+                  android:allowBackup="true"
+                  android:label="Эволюция Материи"
+                  android:theme="@android:style/Theme.NoTitleBar.Fullscreen">
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true"
+                      android:screenOrientation="portrait"
+                      android:configChanges="orientation|screenSize|keyboardHidden">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          EOF
+
+          # Создаём MainActivity.java с поддержкой localStorage и WebAudio
+          cat << 'EOF' > app/src/main/java/com/matter/evolution/MainActivity.java
+          package com.matter.evolution;
+
+          import android.app.Activity;
+          import android.graphics.Color;
+          import android.os.Bundle;
+          import android.webkit.WebChromeClient;
+          import android.webkit.WebSettings;
+          import android.webkit.WebView;
+          import android.webkit.WebViewClient;
+
+          public class MainActivity extends Activity {
+              private WebView webView;
+
+              @Override
+              protected void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+                  webView = new WebView(this);
+                  webView.setBackgroundColor(Color.parseColor("#0d0620"));
+                  setContentView(webView);
+
+                  WebSettings s = webView.getSettings();
+                  s.setJavaScriptEnabled(true);
+                  s.setDomStorageEnabled(true);
+                  s.setDatabaseEnabled(true);
+                  s.setMediaPlaybackRequiresUserGesture(false);
+                  s.setAllowFileAccess(true);
+
+                  webView.setWebViewClient(new WebViewClient());
+                  webView.setWebChromeClient(new WebChromeClient());
+                  webView.setOverScrollMode(WebView.OVER_SCROLL_NEVER);
+
+                  webView.loadUrl("file:///android_asset/index.html");
+              }
+
+              @Override
+              protected void onPause() {
+                  super.onPause();
+                  if (webView != null) webView.onPause();
+              }
+
+              @Override
+              protected void onResume() {
+                  super.onResume();
+                  if (webView != null) webView.onResume();
+              }
+
+              @Override
+              public void onBackPressed() {
+                  moveTaskToBack(true);
+              }
+          }
+          EOF
+
+      - name: 5. Сборка APK через Gradle
+        run: |
+          gradle wrapper --gradle-version 8.5
+          chmod +x ./gradlew
+          ./gradlew assembleDebug --no-daemon
+
+      - name: 6. Выгрузка готового APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Evolution-Matter-APK
+          path: app/build/outputs/apk/debug/app-debug.apk
